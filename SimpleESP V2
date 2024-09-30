@@ -1,0 +1,206 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Teams = game:GetService("Teams")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Function to get the player's team color
+local function getTeamColor(player)
+    return player.Team and player.Team.TeamColor.Color or Color3.new(1, 1, 1)
+end
+
+-- Function to create a tracer line
+local function createTracerLine()
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.Thickness = 1
+    line.Transparency = 1
+    return line
+end
+
+-- Table to store tracers
+local tracers = {}
+
+local function createOverheadGUI(player)
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid")
+    local head = character:WaitForChild("Head")
+
+    local existingGUI = head:FindFirstChild("OverheadGUI")
+    if existingGUI then existingGUI:Destroy() end
+
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Name = "OverheadGUI"
+    billboardGui.AlwaysOnTop = true
+    billboardGui.Size = UDim2.new(0, 200, 0, 50)
+    billboardGui.StudsOffset = Vector3.new(0, 3, 0)
+    billboardGui.Parent = head
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.Parent = billboardGui
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextScaled = true
+    nameLabel.Parent = frame
+
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Name = "HealthLabel"
+    healthLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    healthLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextScaled = true
+    healthLabel.TextColor3 = Color3.new(0, 1, 0)
+    healthLabel.Parent = frame
+
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Name = "DistanceLabel"
+    distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.TextScaled = true
+    distanceLabel.TextColor3 = Color3.new(1, 1, 0)
+    distanceLabel.Parent = frame
+
+    local function updateGUI()
+        local teamColor = getTeamColor(player)
+        nameLabel.Text = player.DisplayName .. " (" .. player.Name .. ")"
+        nameLabel.TextColor3 = teamColor
+        healthLabel.Text = "Health: " .. math.floor(humanoid.Health)
+
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude
+            distanceLabel.Text = "Distance: " .. math.floor(distance) .. " studs"
+        else
+            distanceLabel.Text = "Distance: N/A"
+        end
+    end
+
+    RunService.Heartbeat:Connect(updateGUI)
+end
+
+local function createHighlight(player)
+    local character = player.Character or player.CharacterAdded:Wait()
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "PlayerHighlight"
+    highlight.Adornee = character
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = character
+
+    local function updateHighlightColor()
+        local teamColor = getTeamColor(player)
+        highlight.FillColor = teamColor
+        highlight.OutlineColor = teamColor
+    end
+
+    updateHighlightColor()
+    player:GetPropertyChangedSignal("Team"):Connect(updateHighlightColor)
+end
+
+local function setupPlayer(player)
+    if player ~= LocalPlayer then
+        createOverheadGUI(player)
+        createHighlight(player)
+        tracers[player] = createTracerLine()
+    end
+end
+
+-- Function to update tracers
+local function updateTracers()
+    for player, line in pairs(tracers) do
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local characterPos = player.Character.HumanoidRootPart.Position
+            local screenPoint, onScreen = Camera:WorldToViewportPoint(characterPos)
+
+            if onScreen then
+                line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                line.To = Vector2.new(screenPoint.X, screenPoint.Y)
+                line.Color = getTeamColor(player)
+                line.Visible = true
+            else
+                line.Visible = false
+            end
+        else
+            line.Visible = false
+        end
+    end
+end
+
+-- Bitain functionality
+local snapDistance = 100
+local smoothSpeed = 0.1
+
+local function isPlayerInSight(targetPlayer)
+    local character = targetPlayer.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local humanoidRootPart = character.HumanoidRootPart
+        local origin = Camera.CFrame.Position
+        local direction = (humanoidRootPart.Position - origin).unit * snapDistance
+
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+
+        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+        
+        return raycastResult and raycastResult.Instance:IsDescendantOf(character)
+    end
+    return false
+end
+
+local function getClosestPlayerInSight()
+    local closestPlayer = nil
+    local shortestDistance = snapDistance
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and isPlayerInSight(player) then
+            local distance = (player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestPlayer = player
+            end
+        end
+    end
+    return closestPlayer
+end
+
+local function smoothSnapCameraToPlayer(targetPosition)
+    local currentPosition = Camera.CFrame.Position
+    local targetCFrame = CFrame.new(currentPosition, targetPosition)
+    Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, smoothSpeed)
+end
+
+-- Setup existing players
+for _, player in ipairs(Players:GetPlayers()) do
+    setupPlayer(player)
+end
+
+-- Handle new players
+Players.PlayerAdded:Connect(setupPlayer)
+
+-- Handle players leaving
+Players.PlayerRemoving:Connect(function(playerRemoved)
+    if tracers[playerRemoved] then
+        tracers[playerRemoved]:Remove()
+        tracers[playerRemoved] = nil
+    end
+end)
+
+-- Main update loop
+RunService.RenderStepped:Connect(function()
+    updateTracers()
+
+    local closestPlayer = getClosestPlayerInSight()
+    if closestPlayer then
+        local humanoidRootPart = closestPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            smoothSnapCameraToPlayer(humanoidRootPart.Position)
+        end
+    end
+end)
