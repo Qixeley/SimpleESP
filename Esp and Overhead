@@ -1,0 +1,128 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Teams = game:GetService("Teams")
+
+local function getTeamColor(player)
+    return player.Team and player.Team.TeamColor.Color or Color3.new(1, 1, 1)
+end
+
+local function createOverheadGUI(player)
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid")
+    local head = character:WaitForChild("Head")
+
+    local existingGUI = head:FindFirstChild("OverheadGUI")
+    if existingGUI then
+        existingGUI:Destroy()
+    end
+
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Name = "OverheadGUI"
+    billboardGui.AlwaysOnTop = true
+    billboardGui.Size = UDim2.new(0, 200, 0, 50)
+    billboardGui.StudsOffset = Vector3.new(0, 3, 0)
+    billboardGui.Parent = head
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.Parent = billboardGui
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    nameLabel.Position = UDim2.new(0, 0, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextScaled = true
+    nameLabel.Parent = frame
+
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Name = "HealthLabel"
+    healthLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    healthLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextScaled = true
+    healthLabel.TextColor3 = Color3.new(0, 1, 0)
+    healthLabel.Parent = frame
+
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Name = "DistanceLabel"
+    distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.TextScaled = true
+    distanceLabel.TextColor3 = Color3.new(1, 1, 0)
+    distanceLabel.Parent = frame
+
+    local function updateGUI()
+        local teamColor = getTeamColor(player)
+        nameLabel.Text = player.DisplayName .. " (" .. player.Name .. ")"
+        nameLabel.TextColor3 = teamColor
+        healthLabel.Text = "Health: " .. math.floor(humanoid.Health)
+
+        local localPlayer = Players.LocalPlayer
+        if localPlayer and localPlayer.Character then
+            local distance = (localPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude
+            distanceLabel.Text = "Distance: " .. math.floor(distance) .. " studs"
+        else
+            distanceLabel.Text = "Distance: N/A"
+        end
+    end
+
+    RunService.Heartbeat:Connect(updateGUI)
+end
+
+local function createHighlight(player)
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+    local highlight = humanoidRootPart:FindFirstChild("Highlight") or Instance.new("Highlight")
+    highlight.Name = "Highlight"
+    highlight.Adornee = character
+    highlight.Parent = humanoidRootPart
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+
+    local function updateHighlightColor()
+        local teamColor = getTeamColor(player)
+        highlight.FillColor = teamColor
+        highlight.OutlineColor = teamColor
+    end
+
+    updateHighlightColor()
+    player:GetPropertyChangedSignal("Team"):Connect(updateHighlightColor)
+end
+
+local function setupPlayer(player)
+    player.CharacterAdded:Connect(function()
+        createOverheadGUI(player)
+        createHighlight(player)
+    end)
+    if player.Character then
+        createOverheadGUI(player)
+        createHighlight(player)
+    end
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    setupPlayer(player)
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+
+Players.PlayerRemoving:Connect(function(playerRemoved)
+    local character = playerRemoved.Character
+    if character then
+        local highlight = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart:FindFirstChild("Highlight")
+        if highlight then
+            highlight:Destroy()
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and not player.Character.HumanoidRootPart:FindFirstChild("Highlight") then
+            createHighlight(player)
+        end
+    end
+end)
